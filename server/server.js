@@ -141,6 +141,36 @@ app.get("/api/problem/:id", async (req, res) => {
   }
 });
 
+/* ---------------- SAVE PROGRESS ---------------- */
+app.post("/api/progress/save", protect, async (req, res) => {
+  try {
+    const { problemId, solved, code, hintLevel } = req.body;
+    const existing = await Progress.findOne({ userId: req.user.id, problemId });
+    if (existing) {
+      existing.solved = solved;
+      existing.code = code;
+      existing.hintLevel = hintLevel;
+      await existing.save();
+    } else {
+      await Progress.create({ userId: req.user.id, problemId, solved, code, hintLevel });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.log("SAVE PROGRESS ERROR:", error.message);
+    res.status(500).json({ error: "Failed to save progress" });
+  }
+});
+
+/* ---------------- GET PROGRESS ---------------- */
+app.get("/api/progress", protect, async (req, res) => {
+  try {
+    const progress = await Progress.find({ userId: req.user.id });
+    res.json(progress);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch progress" });
+  }
+});
+
 /* ---------------- RUN CODE ---------------- */
 app.post("/api/run", async (req, res) => {
   try {

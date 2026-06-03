@@ -4,7 +4,7 @@ import Editor from "@monaco-editor/react";
 
 const API = import.meta.env.VITE_API_URL || "";
 
-function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem }) {
+function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem, onMarkSolved, onSaveCode, progress }) {
   const [output, setOutput] = useState("");
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -12,8 +12,10 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
   const [aiHint, setAiHint] = useState("");
   const [activeTab, setActiveTab] = useState("output");
   const [hintLevel, setHintLevel] = useState(1);
+  const [submitSuccess, setSubmitSuccess] = useState(false);
 
   const languageMap = { javascript: 63, python: 71, java: 62, cpp: 54 };
+  const isSolved = selectedProblem ? progress?.[selectedProblem._id]?.solved : false;
 
   /* RUN */
   const runCode = async () => {
@@ -30,6 +32,10 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
         response.data.compile_output ||
         "No output"
       );
+      // Auto-save code when running
+      if (selectedProblem) {
+        onSaveCode(selectedProblem._id, code, hintLevel);
+      }
     } catch {
       setOutput("Error running code. Make sure the server is running.");
     } finally {
@@ -41,12 +47,25 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
   const submitCode = async () => {
     try {
       setSubmitting(true);
+      setSubmitSuccess(false);
       setActiveTab("output");
       const response = await axios.post(`${API}/api/run`, {
         code, languageId: languageMap[language],
       });
       const result = response.data.stdout || response.data.stderr || "No output";
-      setOutput(`Submission\n${"─".repeat(30)}\n${result}\nStatus: ${response.data.status?.description || "Completed"}`);
+      const statusDesc = response.data.status?.description || "Completed";
+
+      setOutput(`Submission Result\n${"─".repeat(30)}\n${result}\nStatus: ${statusDesc}`);
+
+      // Mark as solved and save to DB
+      if (selectedProblem && response.data.status?.id === 3) {
+        // status id 3 = Accepted in Judge0
+        await onMarkSolved(selectedProblem._id, code, hintLevel);
+        setSubmitSuccess(true);
+      } else if (selectedProblem) {
+        // Save code even if not accepted
+        await onSaveCode(selectedProblem._id, code, hintLevel);
+      }
     } catch {
       setOutput("Submission failed.");
     } finally {
@@ -67,6 +86,10 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
       });
       setAiHint(response.data.hint || "No hint generated.");
       if (hintLevel < 3) setHintLevel(hintLevel + 1);
+      // Save hint level progress
+      if (selectedProblem) {
+        onSaveCode(selectedProblem._id, code, hintLevel);
+      }
     } catch {
       setAiHint("Failed to get hint. Make sure the server is running.");
     } finally {
@@ -107,11 +130,16 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
       {/* TOPBAR */}
       <div className="h-14 border-b border-white/5 px-4 flex items-center justify-between gap-3 shrink-0">
 
-        {/* LEFT: title */}
+        {/* LEFT: title + solved badge */}
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-sm font-medium text-slate-300 truncate">
             {selectedProblem?.title || "AI DSA Mentor"}
           </span>
+          {isSolved && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 font-medium shrink-0">
+              ✓ Solved
+            </span>
+          )}
         </div>
 
         {/* RIGHT: controls */}
@@ -183,6 +211,15 @@ function EditorPanel({ language, changeLanguage, code, setCode, selectedProblem 
 
         </div>
       </div>
+
+      {/* SUCCESS BANNER */}
+      {submitSuccess && (
+        <div className="px-4 py-2.5 bg-emerald-500/10 border-b border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+          <span>🎉</span>
+          <span>Problem marked as solved! Great work!</span>
+          <button onClick={() => setSubmitSuccess(false)} className="ml-auto text-emerald-600 hover:text-emerald-400">✕</button>
+        </div>
+      )}
 
       {/* EDITOR */}
       <div className="flex-1 overflow-hidden">

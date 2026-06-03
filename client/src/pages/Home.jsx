@@ -20,17 +20,43 @@ function Home({ user, onUpdate, onLogout }) {
   const [language, setLanguage] = useState("python");
   const [code, setCode] = useState(starterCodes.python);
   const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState({}); // { problemId: { solved, code, hintLevel } }
 
   useEffect(() => { fetchProblems(); }, []);
+
+  const getAuthHeader = () => ({
+    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
+  });
 
   const fetchProblems = async () => {
     try {
       setLoading(true);
-      const res = await axios.get(`${API}/api/problems`);
-      setProblems(res.data);
-      if (res.data.length > 0) {
-        setSelectedProblem(res.data[0]);
-        setCode(res.data[0]?.starterCode || starterCodes.python);
+      const [problemsRes, progressRes] = await Promise.all([
+        axios.get(`${API}/api/problems`),
+        axios.get(`${API}/api/progress`, getAuthHeader()),
+      ]);
+
+      const problemsList = problemsRes.data;
+
+      // Build progress map { problemId: { solved, code, hintLevel } }
+      const progressMap = {};
+      progressRes.data.forEach((p) => {
+        progressMap[p.problemId] = { solved: p.solved, code: p.code, hintLevel: p.hintLevel };
+      });
+
+      // Merge solved status into problems
+      const merged = problemsList.map((p) => ({
+        ...p,
+        solved: progressMap[p._id]?.solved || false,
+      }));
+
+      setProblems(merged);
+      setProgress(progressMap);
+
+      if (merged.length > 0) {
+        setSelectedProblem(merged[0]);
+        const savedCode = progressMap[merged[0]._id]?.code;
+        setCode(savedCode || merged[0]?.starterCode || starterCodes.python);
       }
     } catch (error) {
       console.log("Failed to fetch problems:", error);
@@ -44,7 +70,9 @@ function Home({ user, onUpdate, onLogout }) {
       const res = await axios.get(`${API}/api/problem/${id}`);
       setSelectedProblem(res.data);
       setLanguage("python");
-      setCode(res.data?.starterCode || starterCodes.python);
+      // Load saved code if exists, else use starter code
+      const savedCode = progress[id]?.code;
+      setCode(savedCode || res.data?.starterCode || starterCodes.python);
     } catch (error) {
       console.log("Failed to load problem:", error);
     }
@@ -53,6 +81,41 @@ function Home({ user, onUpdate, onLogout }) {
   const changeLanguage = (lang) => {
     setLanguage(lang);
     setCode(starterCodes[lang] || starterCodes.python);
+  };
+
+  const markSolved = async (problemId, currentCode, hintLevel) => {
+    try {
+      await axios.post(`${API}/api/progress/save`, {
+        problemId,
+        solved: true,
+        code: currentCode,
+        hintLevel,
+      }, getAuthHeader());
+
+      // Update local state so sidebar shows green tick immediately
+      setProgress((prev) => ({
+        ...prev,
+        [problemId]: { solved: true, code: currentCode, hintLevel },
+      }));
+      setProblems((prev) =>
+        prev.map((p) => p._id === problemId ? { ...p, solved: true } : p)
+      );
+    } catch (error) {
+      console.log("Failed to save progress:", error);
+    }
+  };
+
+  const saveCode = async (problemId, currentCode, hintLevel) => {
+    try {
+      await axios.post(`${API}/api/progress/save`, {
+        problemId,
+        solved: progress[problemId]?.solved || false,
+        code: currentCode,
+        hintLevel,
+      }, getAuthHeader());
+    } catch (error) {
+      console.log("Failed to save code:", error);
+    }
   };
 
   if (loading) {
@@ -89,6 +152,9 @@ function Home({ user, onUpdate, onLogout }) {
           code={code}
           setCode={setCode}
           selectedProblem={selectedProblem}
+          onMarkSolved={markSolved}
+          onSaveCode={saveCode}
+          progress={progress}
         />
       </div>
     </div>
