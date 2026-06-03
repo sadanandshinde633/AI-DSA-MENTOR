@@ -15,7 +15,7 @@ const app = express();
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://ai-dsa-mentor-zeta.vercel.app/"
+    "https://ai-dsa-mentor-zeta.vercel.app"
   ],
   credentials: true,
 }));
