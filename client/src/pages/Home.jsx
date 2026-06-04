@@ -106,6 +106,7 @@ function Home({ user, onUpdate, onLogout }) {
   };
 
   const saveCode = async (problemId, currentCode, hintLevel) => {
+    setProgress((prev) => ({ ...prev, [problemId]: { ...prev[problemId], code: currentCode, hintLevel } }));
     try {
       await axios.post(`${API}/api/progress/save`, {
         problemId,

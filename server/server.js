@@ -255,6 +255,90 @@ app.post("/api/explain", async (req, res) => {
   }
 });
 
+/* ---------------- AI CHAT ---------------- */
+app.post("/api/chat", async (req, res) => {
+  try {
+    const { messages, problemTitle } = req.body;
+    const response = await axios.post(
+      "https://openrouter.ai/api/v1/chat/completions",
+      {
+        model: "openai/gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: `You are a friendly DSA mentor helping with: ${problemTitle}. Answer follow-up questions clearly. Never write full solutions. Keep answers short (3-4 sentences max). Sound like a helpful friend.`,
+          },
+          ...messages,
+        ],
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+    const reply = response.data?.choices?.[0]?.message?.content || "No response.";
+    res.json({ reply });
+  } catch (error) {
+    console.log("CHAT ERROR:", error.response?.data || error.message);
+    res.status(500).json({ error: "Chat failed" });
+  }
+});
+
+/* ---------------- UPDATE STREAK ---------------- */
+app.post("/api/streak", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const today = new Date().toISOString().split("T")[0];
+    const last = user.lastSolvedDate;
+
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
+    if (last === today) {
+      // already updated today, do nothing
+    } else if (last === yesterdayStr) {
+      user.streak += 1;
+    } else {
+      user.streak = 1;
+    }
+
+    user.lastSolvedDate = today;
+
+    const badges = new Set(user.badges);
+    if (user.streak >= 3)  badges.add("3-Day Streak 🔥");
+    if (user.streak >= 7)  badges.add("Week Warrior ⚡");
+    if (user.streak >= 30) badges.add("Month Master 👑");
+
+    const solvedCount = await Progress.countDocuments({ userId: req.user.id, solved: true });
+    if (solvedCount >= 1)  badges.add("First Solve 🎯");
+    if (solvedCount >= 10) badges.add("10 Solves 💪");
+    if (solvedCount >= 25) badges.add("25 Solves 🚀");
+
+    user.badges = [...badges];
+    await user.save();
+
+    res.json({ streak: user.streak, badges: user.badges });
+  } catch (error) {
+    console.log("STREAK ERROR:", error.message);
+    res.status(500).json({ error: "Failed to update streak" });
+  }
+});
+
+/* ---------------- GET STREAK ---------------- */
+app.get("/api/streak", protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("streak badges");
+    res.json({ streak: user.streak, badges: user.badges });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch streak" });
+  }
+});
+
 /* ---------------- START SERVER ---------------- */
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
